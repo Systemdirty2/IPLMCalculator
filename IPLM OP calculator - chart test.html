@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IPLM Overpayment Calculator</title>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            background-color: #f0f0f5;
+            margin: 0;
+            padding: 20px;
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 20px;
+        }
+        form {
+            background-color: #fff;
+            border-radius: 10px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            padding: 20px;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+        label {
+            display: block;
+            font-weight: bold;
+            margin-bottom: 8px;
+            color: #555;
+        }
+        input {
+            width: 100%;
+            padding: 10px;
+            margin-bottom: 20px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            font-size: 16px;
+            box-sizing: border-box;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            width: 100%;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        #result, #chart-container {
+            background-color: #fff;
+            border-radius: 10px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            padding: 20px;
+            margin-top: 20px;
+            max-width: 600px;
+            margin: 20px auto;
+            font-size: 16px;
+            color: #333;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        canvas {
+            width: 100% !important;
+            max-width: 100%;
+        }
+    </style>
+
+    <!-- Add Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+
+<div class="container">
+    <h1>IPLM Overpayment Calculator</h1>
+
+    <form id="calculatorForm">
+        <label for="loanAmount">Initial Loan Amount (£):</label>
+        <input type="number" id="loanAmount" required>
+
+        <label for="aer">AER (%) :</label>
+        <input type="number" id="aer" required>
+
+        <label for="interestServed">Interest Served During Payment Term (%) :</label>
+        <input type="number" id="interestServed" required>
+
+        <label for="paymentTerm">Payment Term (years):</label>
+        <input type="number" id="paymentTerm" required>
+
+        <label for="loanTerm">Total Loan Term (years):</label>
+        <input type="number" id="loanTerm" required>
+
+        <label for="monthlyOverpayment">Monthly Overpayment (£):</label>
+        <input type="number" id="monthlyOverpayment" required>
+
+        <label for="overpaymentDuration">Overpayment Duration (months):</label>
+        <input type="number" id="overpaymentDuration" required>
+
+        <div id="committedPayment" style="margin-bottom: 20px; font-weight: bold;"></div>
+
+        <button type="button" id="calculateButton">Calculate</button>
+    </form>
+
+    <div id="result"></div>
+    <div id="chart-container">
+        <canvas id="loanChart"></canvas>
+    </div>
+</div>
+
+<script>
+// Store the chart object globally
+let loanChart = null;
+
+document.addEventListener("DOMContentLoaded", function () {
+    // Attach event listeners for dynamic committed payment calculation
+    document.getElementById('loanAmount').addEventListener('input', calculateCommittedPayment);
+    document.getElementById('aer').addEventListener('input', calculateCommittedPayment);
+    document.getElementById('interestServed').addEventListener('input', calculateCommittedPayment);
+
+    function calculateCommittedPayment() {
+        const loanAmount = parseFloat(document.getElementById('loanAmount').value);
+        const aer = parseFloat(document.getElementById('aer').value) / 100;
+        const interestServedPercent = parseFloat(document.getElementById('interestServed').value) / 100;
+
+        if (!isNaN(loanAmount) && !isNaN(aer) && !isNaN(interestServedPercent)) {
+            const mer = Math.pow(1 + aer, 1.0 / 12.0) - 1; // Convert AER to monthly equivalent rate
+            const fullCommittedPayment = loanAmount * mer;
+            const committedPayment = fullCommittedPayment * interestServedPercent;
+            document.getElementById('committedPayment').innerHTML = `Committed Monthly Payment: £${committedPayment.toFixed(2)}`;
+        } else {
+            document.getElementById('committedPayment').innerHTML = ""; // Clear if invalid input
+        }
+    }
+
+    // Function to calculate and display the results
+    function calculate() {
+        // Grab user inputs
+        const loanAmount = parseFloat(document.getElementById('loanAmount').value);
+        const aer = parseFloat(document.getElementById('aer').value) / 100;
+        const interestServedPercent = parseFloat(document.getElementById('interestServed').value) / 100;
+        const paymentTermYears = parseInt(document.getElementById('paymentTerm').value);
+        const loanTermYears = parseInt(document.getElementById('loanTerm').value);
+        const monthlyOverpayment = parseFloat(document.getElementById('monthlyOverpayment').value);
+        const overpaymentDuration = parseInt(document.getElementById('overpaymentDuration').value);
+
+        // Convert AER to MER (Monthly Equivalent Rate)
+        const mer = Math.pow(1 + aer, 1.0 / 12.0) - 1;
+
+        // Convert loan durations to months
+        const paymentTermMonths = paymentTermYears * 12;
+        const totalLoanMonths = loanTermYears * 12;
+
+        let currentLoanBalance = loanAmount;
+        const fullCommittedPayment = loanAmount * mer;
+        const committedPayment = fullCommittedPayment * interestServedPercent;
+
+        let balanceData = [];
+        let labels = [];
+        let resultString = `<h3>Results:</h3> Committed Monthly Payment: £${committedPayment.toFixed(2)}<br>`;
+
+        // Phase 1: During payment term (fixed payment)
+        for (let month = 1; month <= paymentTermMonths; month++) {
+            const interestForMonth = currentLoanBalance * mer;
+            currentLoanBalance += interestForMonth - committedPayment;
+            if (month <= overpaymentDuration) currentLoanBalance -= monthlyOverpayment;
+
+            if (currentLoanBalance <= 0) {
+                const year = Math.floor(month / 12);
+                const remainingMonth = month % 12;
+                resultString += `Loan balance reaches zero after ${year} years and ${remainingMonth} months.<br>`;
+                document.getElementById('result').innerHTML = resultString;
+                break;
+            }
+
+            if (month % 12 === 0) {
+                labels.push(`Year ${month / 12}`);
+                balanceData.push(currentLoanBalance);
+            }
+        }
+
+        // Phase 2: After payment term (full compounding)
+        for (let month = paymentTermMonths + 1; month <= totalLoanMonths; month++) {
+            const interestForMonth = currentLoanBalance * mer;
+            currentLoanBalance += interestForMonth;
+            if (month <= overpaymentDuration) currentLoanBalance -= monthlyOverpayment;
+
+            if (currentLoanBalance <= 0) {
+                const year = Math.floor(month / 12);
+                const remainingMonth = month % 12;
+                resultString += `Loan balance reaches zero after ${year} years and ${remainingMonth} months.<br>`;
+                document.getElementById('result').innerHTML = resultString;
+                break;
+            }
+
+            if (month % 12 === 0) {
+                labels.push(`Year ${month / 12}`);
+                balanceData.push(currentLoanBalance);
+            }
+        }
+
+        // Display results
+        document.getElementById('result').innerHTML = resultString;
+
+        // Destroy the previous chart if it exists
+        if (loanChart !== null) {
+            loanChart.destroy();
+        }
+
+
+        // Create the new chart
+        const ctx = document.getElementById('loanChart').getContext('2d');
+        loanChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Remaining Loan Balance (£)',
+                    data: balanceData,
+                    borderColor: 'rgba(75, 192, 192, 1)',
+                    backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                    borderWidth: 2,
+                    fill: true
+                }]
+            },
+            options: {
+                responsive: true,
+                scales: {
+                    y: {
+                        beginAtZero: true,  // Ensure Y-axis starts at 0
+                        title: {
+                            display: true,
+                            text: 'Remaining Balance (£)',
+                            font: {
+                                size: 14
+                            }
+                        }
+                    },
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'Time (Years)',
+                            font: {
+                                size: 14
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    // Bind the calculate function to the button click
+    document.getElementById('calculateButton').addEventListener('click', calculate);
+});
+</script>
+
+</body>
+</html>
